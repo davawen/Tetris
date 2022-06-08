@@ -1,17 +1,60 @@
-use std::{io::{stdout, Write, stdin, Stdout}, thread, time::Duration, sync::{mpsc::{self, TryRecvError}}};
+use std::{io::{stdout, Write, stdin, Stdout}, thread, time::Duration, sync::{mpsc::{self, TryRecvError}}, default};
 use derive_more::{Deref, DerefMut};
 
+use rand::{thread_rng, prelude::Distribution, distributions::Standard, Rng};
 use termion::{
     cursor,
     raw::{IntoRawMode, RawTerminal},
     input::TermRead,
-    event::Key
+    event::Key, color::Fg
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Color {
     Empty,
-    White
+    White,
+    Red,
+    Cyan
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Color::Empty
+    }
+}
+
+impl Color {
+    fn is_empty(&self) -> bool {
+        matches!(self, Color::Empty)
+    }
+}
+
+impl std::fmt::Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use termion::color as c;
+        use Color::*;
+
+        match self {
+            Empty => write!(f, "{}", c::Fg(c::Black)),
+            White => write!(f, "{}", c::Fg(c::LightWhite)),
+            Red => write!(f, "{}", c::Fg(c::Red)),
+            Cyan => write!(f, "{}", c::Fg(c::Cyan)),
+        }
+    }
+}
+
+impl Distribution<Color> for Standard {
+    /// Doesn't return 'Empty'
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Color {
+        use Color::*;
+
+        match rng.gen_range(1..4) {
+            1 => White,
+            2 => Red,
+            3 => Cyan,
+            _ => panic!()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -35,7 +78,7 @@ struct ShapeRotation([[u16; 4]; 4]);
 type Shape = [ShapeRotation; 4];
 
 #[derive(Default, Debug, Deref, DerefMut)]
-struct Grid([[u16; 8]; 16]);
+struct Grid([[Color; 8]; 16]);
 
 #[derive(Debug)]
 struct Piece {
@@ -122,7 +165,7 @@ impl Grid {
                     if !(0..Grid::HEIGHT).contains(&g_y) { return true }
 
                     // Check other block
-                    if self[g_y as usize][g_x as usize] != 0 { return true }
+                    if !self[g_y as usize][g_x as usize].is_empty() { return true }
                 }
             }
         }
@@ -143,8 +186,9 @@ impl Grid {
                     if !(0..Grid::WIDTH).contains(&g_x) { panic!() }
                     if !(0..Grid::HEIGHT).contains(&g_y) { panic!() }
 
-                    // Check other block
-                    self[g_y as usize][g_x as usize] = square;
+                    if block.color.is_empty() { panic!("ASSIGNING EMPTY COLOR") }
+
+                    self[g_y as usize][g_x as usize] = block.color;
                 }
             }
         }
@@ -156,12 +200,12 @@ impl Grid {
         Pos(0, 0).goto(stdout).unwrap();
 
         for row in grid {
-            for &square in row {
-                if square == 0 {
+            for square in row {
+                if square.is_empty() {
                     write!(stdout, "` ").unwrap();
                 }
                 else {
-                    write!(stdout, "o ").unwrap();
+                    write!(stdout, "{}o{} ", square, Fg(termion::color::Reset)).unwrap();
                 }
             }
 
@@ -215,7 +259,7 @@ impl Piece {
                     write!(stdout, "{}", cursor::Right(2)).unwrap();
                 }
                 else {
-                    write!(stdout, "o ").unwrap();
+                    write!(stdout, "{}o{} ", self.color, Fg(termion::color::Reset)).unwrap();
                 }
             }
 
@@ -282,7 +326,7 @@ fn main() {
         if ticks % 500 == 0 {
             if piece.try_move(&grid, 0, 1).is_none() && !rotated_this_frame {
                 grid.emplace(&piece);
-                piece = Piece { shape: &Shapes::T, pos: Pos(1, 1), color: Color::White, rotation: 0 };
+                piece = Piece { shape: &Shapes::T, pos: Pos(1, 1), color: thread_rng().gen(), rotation: 0 };
             }
         }
 
