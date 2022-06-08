@@ -1,11 +1,11 @@
-use std::{io::{stdout, Write, stdin, Stdout}, thread, time::Duration, collections::{vec_deque, VecDeque}, sync::{Mutex, mpsc::{self, TryRecvError}}};
+use std::{io::{stdout, Write, stdin, Stdout}, thread, time::Duration, sync::{mpsc::{self, TryRecvError}}};
 use derive_more::{Deref, DerefMut};
 
 use termion::{
     cursor,
     raw::{IntoRawMode, RawTerminal},
-    input::{Events, TermRead},
-    event::{Key, Event}
+    input::TermRead,
+    event::Key
 };
 
 #[derive(Debug)]
@@ -17,9 +17,15 @@ enum Color {
 #[derive(Debug, Clone, Copy, Default)]
 struct Pos(i16, i16);
 
+// Offset every pos by 4
 impl Pos {
-    fn to_term(&self) -> Pos {
-        Pos( self.0 * 2 + 1, self.1 + 1 )
+    fn term_pos(&self) -> Pos {
+        Pos( self.0 * 2 + 1 + 4, self.1 + 1 + 4 )
+    }
+
+    fn goto(&self, stdout: &mut RawTerminal<Stdout>) -> std::io::Result<()> {
+        let pos = self.term_pos();
+        write!(stdout, "{}", cursor::Goto(pos.0.try_into().unwrap(), pos.1.try_into().unwrap()))
     }
 }
 
@@ -32,7 +38,7 @@ type Shape = [ShapeRotation; 4];
 struct Grid([[u16; 8]; 16]);
 
 #[derive(Debug)]
-struct Block {
+struct Piece {
     color: Color,
     shape: &'static Shape,
     pos: Pos,
@@ -102,7 +108,7 @@ impl Grid {
     const WIDTH: i16 = 8;
     const HEIGHT: i16 = 16;
 
-    fn check_collision(&self, block: &Block) -> bool {
+    fn check_collision(&self, block: &Piece) -> bool {
         
         for y in 0..block.shape.len() {
             for x in 0..block.shape[y].len() {
@@ -124,7 +130,7 @@ impl Grid {
         false
     }
 
-    fn emplace(&mut self, block: &Block) {
+    fn emplace(&mut self, block: &Piece) {
 
         for y in 0..block.shape.len() {
             for x in 0..block.shape[y].len() {
@@ -147,7 +153,7 @@ impl Grid {
     fn render(&self, stdout: &mut RawTerminal<Stdout>) {
         let grid = &self.0;
 
-        write!(stdout, "{}", cursor::Goto(1, 1)).unwrap();
+        Pos(0, 0).goto(stdout).unwrap();
 
         for row in grid {
             for &square in row {
@@ -159,12 +165,12 @@ impl Grid {
                 }
             }
 
-            write!(stdout, "{}{}", cursor::Down(1), cursor::Left(1000)).unwrap();
+            write!(stdout, "{}{}", cursor::Down(1), cursor::Left(Grid::WIDTH as u16 * 2)).unwrap();
         }
     }
 }
 
-impl Block {
+impl Piece {
     fn try_move(&mut self, grid: &Grid, x: i16, y: i16) -> Option<()> {
         self.pos.0 += x;
         self.pos.1 += y;
@@ -201,8 +207,7 @@ impl Block {
     }
 
     fn render(&self, stdout: &mut RawTerminal<Stdout>) {
-        let pos = self.pos.to_term();
-        write!(stdout, "{}", cursor::Goto(pos.0.try_into().unwrap(), pos.1.try_into().unwrap())).unwrap();
+        self.pos.goto(stdout).unwrap();
 
         for row in self.shape_rotation().0 {
             for square in row {
@@ -228,7 +233,7 @@ fn main() {
 
     let mut grid = Grid( Default::default() );
 
-    let mut piece = Block { shape: &Shapes::I, pos: Pos(1, 1), color: Color::White, rotation: 0 };
+    let mut piece = Piece { shape: &Shapes::I, pos: Pos(1, 1), color: Color::White, rotation: 0 };
 
     let (tx, rx) = mpsc::channel();
     let (stop_tx, stop_rx) = mpsc::channel();
@@ -254,6 +259,8 @@ fn main() {
 
     loop {
 
+        let mut rotated_this_frame = false;
+
         if let Ok(c) = rx.try_recv() {
             match c {
                 Key::Char('q') => {
@@ -262,15 +269,20 @@ fn main() {
                 },
                 Key::Left => piece.try_move(&grid, -1, 0).unwrap_or(()),
                 Key::Right => piece.try_move(&grid, 1, 0).unwrap_or(()),
-                Key::Up => piece.try_rotate(&grid, piece.clockwise()).unwrap_or(()),
+                Key::Up => {
+                    if piece.try_rotate(&grid, piece.clockwise()).is_some() {
+                        rotated_this_frame = true;
+                    }
+                },
+                Key::Down => piece.try_move(&grid, 0, 1).unwrap_or(()),
                 _ => ()
             }            
         }
 
         if ticks % 500 == 0 {
-            if piece.try_move(&grid, 0, 1).is_none() {
+            if piece.try_move(&grid, 0, 1).is_none() && !rotated_this_frame {
                 grid.emplace(&piece);
-                piece = Block { shape: &Shapes::I, pos: Pos(1, 1), color: Color::White, rotation: 0 };
+                piece = Piece { shape: &Shapes::T, pos: Pos(1, 1), color: Color::White, rotation: 0 };
             }
         }
 
