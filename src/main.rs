@@ -1,4 +1,4 @@
-use std::{io::{stdout, Write, stdin, Stdout}, thread, time::Duration, sync::{mpsc::{self, TryRecvError}}, default};
+use std::{io::{stdout, Write, stdin, Stdout}, thread, time::{Duration, Instant}, sync::{mpsc::{self, TryRecvError}}, default};
 use derive_more::{Deref, DerefMut};
 
 use rand::{thread_rng, prelude::Distribution, distributions::Standard, Rng};
@@ -14,7 +14,9 @@ enum Color {
     Empty,
     White,
     Red,
-    Cyan
+    Cyan,
+    Yellow,
+    Green
 }
 
 impl Default for Color {
@@ -39,6 +41,8 @@ impl std::fmt::Display for Color {
             White => write!(f, "{}", c::Fg(c::LightWhite)),
             Red => write!(f, "{}", c::Fg(c::Red)),
             Cyan => write!(f, "{}", c::Fg(c::Cyan)),
+            Yellow => write!(f, "{}", c::Fg(c::Yellow)),
+            Green => write!(f, "{}", c::Fg(c::LightGreen)),
         }
     }
 }
@@ -52,6 +56,8 @@ impl Distribution<Color> for Standard {
             1 => White,
             2 => Red,
             3 => Cyan,
+            4 => Yellow,
+            5 => Green,
             _ => panic!()
         }
     }
@@ -299,13 +305,21 @@ fn main() {
         }
     });
 
-    let mut ticks = 0;
+    let mut delta_time = Duration::new(0, 0);
 
     loop {
 
+        let start_time = Instant::now();
+
+        grid.render(&mut stdout);
+
+        piece.render(&mut stdout);
+
+        stdout.flush().unwrap();
+
         let mut rotated_this_frame = false;
 
-        if let Ok(c) = rx.try_recv() {
+        if let Ok(c) = rx.recv_timeout(Duration::from_millis(100)) {
             match c {
                 Key::Char('q') => {
                     stop_tx.send(()).unwrap();
@@ -323,21 +337,15 @@ fn main() {
             }            
         }
 
-        if ticks % 500 == 0 {
+        while delta_time.as_millis() > 500 {
             if piece.try_move(&grid, 0, 1).is_none() && !rotated_this_frame {
                 grid.emplace(&piece);
                 piece = Piece { shape: &Shapes::T, pos: Pos(1, 1), color: thread_rng().gen(), rotation: 0 };
             }
+
+            delta_time -= Duration::from_millis(500);
         }
 
-        grid.render(&mut stdout);
-
-        piece.render(&mut stdout);
-
-        stdout.flush().unwrap();
-
-        thread::sleep(Duration::from_millis(50));
-
-        ticks += 50;
+        delta_time += Instant::now() - start_time;
     }
 }
