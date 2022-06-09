@@ -78,6 +78,20 @@ impl Grid {
         }
     }
 
+    fn remove_full_lines(&mut self) {
+        let grid = &mut self.0;
+            
+        for y in 0..grid.len() {
+            let row = &mut grid[y];
+
+            if !row.iter().any(|c|{ c.is_empty() }) {
+                row.fill(Color::Empty);
+
+                grid[0..=y].rotate_right(1);
+            }
+        }
+    }
+
     fn render(&self, stdout: &mut RawTerminal<Stdout>, next_piece: &Piece) {
         let grid = &self.0;
 
@@ -268,9 +282,10 @@ fn main() {
                     while piece.try_move(&grid, 0, 1).is_some() {}
 
                     grid.emplace(&piece);
+                    grid.remove_full_lines();
+
                     piece = next_piece;
                     piece.move_top();
-
                     next_piece = Piece::new();
                 },
                 Key::Left => {
@@ -295,9 +310,10 @@ fn main() {
         while delta_time.as_millis() > 500 {
             if piece.try_move(&grid, 0, 1).is_none() && !rotated_this_frame {
                 grid.emplace(&piece);
+                grid.remove_full_lines();
+
                 piece = next_piece;
                 piece.move_top();
-
                 next_piece = Piece::new();
             }
 
