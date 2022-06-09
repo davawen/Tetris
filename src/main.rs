@@ -52,7 +52,7 @@ impl Distribution<Color> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Color {
         use Color::*;
 
-        match rng.gen_range(1..4) {
+        match rng.gen_range(1..=5) {
             1 => White,
             2 => Red,
             3 => Cyan,
@@ -100,28 +100,28 @@ struct Shapes;
 impl Shapes {
     pub const I: Shape = [
         ShapeRotation([
-            [ 1, 0, 0, 0 ],
-            [ 1, 0, 0, 0 ],
-            [ 1, 0, 0, 0 ],
-            [ 1, 0, 0, 0 ]
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 0, 0, 0, 0 ],
+            [ 1, 1, 1, 1 ],
+            [ 0, 0, 0, 0 ],
+            [ 0, 0, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 0, 0, 1, 0 ],
+            [ 0, 0, 1, 0 ],
+            [ 0, 0, 1, 0 ],
+            [ 0, 0, 1, 0 ]
         ]),
         ShapeRotation([
             [ 0, 0, 0, 0 ],
             [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ],
-            [ 1, 1, 1, 1 ]
-        ]),
-        ShapeRotation([
-            [ 1, 0, 0, 0 ],
-            [ 1, 0, 0, 0 ],
-            [ 1, 0, 0, 0 ],
-            [ 1, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ],
-            [ 1, 1, 1, 1 ]
+            [ 1, 1, 1, 1 ],
+            [ 0, 0, 0, 0 ]
         ])
     ];
 
@@ -151,6 +151,70 @@ impl Shapes {
             [ 0, 0, 0, 0 ]
         ])
     ];
+
+    pub const L: Shape = [
+        ShapeRotation([
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 1, 0 ],
+            [ 0, 0, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 0, 0, 0, 0 ],
+            [ 1, 1, 1, 0 ],
+            [ 1, 0, 0, 0 ],
+            [ 0, 0, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 1, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 0, 0, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 0, 0, 1, 0 ],
+            [ 1, 1, 1, 0 ],
+            [ 0, 0, 0, 0 ],
+            [ 0, 0, 0, 0 ]
+        ])
+    ];
+
+    pub const J: Shape = [
+        ShapeRotation([
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 1, 1, 0, 0 ],
+            [ 0, 0, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 1, 0, 0, 0 ],
+            [ 1, 1, 1, 0 ],
+            [ 0, 0, 0, 0 ],
+            [ 0, 0, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 0, 1, 1, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 0, 1, 0, 0 ],
+            [ 0, 0, 0, 0 ]
+        ]),
+        ShapeRotation([
+            [ 0, 0, 0, 0 ],
+            [ 1, 1, 1, 0 ],
+            [ 0, 0, 1, 0 ],
+            [ 0, 0, 0, 0 ]
+        ])
+    ];
+
+    fn rand() -> &'static Shape {
+        match thread_rng().gen_range(1..=4) {
+            1 => &Shapes::I,
+            2 => &Shapes::T,
+            3 => &Shapes::L,
+            4 => &Shapes::J,
+            _ => unreachable!()
+        }
+    }
 }
 
 impl Grid {
@@ -168,7 +232,12 @@ impl Grid {
                     
                     // Check bounds
                     if !(0..Grid::WIDTH).contains(&g_x) { return true }
-                    if !(0..Grid::HEIGHT).contains(&g_y) { return true }
+
+                    // Return collision on lower bound
+                    if g_y >= Grid::HEIGHT { return true }
+
+                    // Ignore upper bound (to allow dropping pieces from above the board)
+                    if g_y < 0 { continue; }
 
                     // Check other block
                     if !self[g_y as usize][g_x as usize].is_empty() { return true }
@@ -189,8 +258,8 @@ impl Grid {
                     let (g_x, g_y) = (x as i16 + block.pos.0, y as i16 + block.pos.1);
                     
                     // Check bounds
-                    if !(0..Grid::WIDTH).contains(&g_x) { panic!() }
-                    if !(0..Grid::HEIGHT).contains(&g_y) { panic!() }
+                    if !(0..Grid::WIDTH).contains(&g_x) { continue; }
+                    if !(0..Grid::HEIGHT).contains(&g_y) { continue; }
 
                     if block.color.is_empty() { panic!("ASSIGNING EMPTY COLOR") }
 
@@ -200,11 +269,19 @@ impl Grid {
         }
     }
 
-    fn render(&self, stdout: &mut RawTerminal<Stdout>) {
+    fn render(&self, stdout: &mut RawTerminal<Stdout>, next_piece: &Piece) {
         let grid = &self.0;
 
-        Pos(0, 0).goto(stdout).unwrap();
+        // Clear up area above grid
+        for y in -4..0 {
+            Pos(0, y).goto(stdout).unwrap();
 
+            write!(stdout, "{}", " ".repeat(Grid::WIDTH as usize * 2)).unwrap();
+        }
+
+        // Draw grid
+        Pos(0, 0).goto(stdout).unwrap();
+        
         for row in grid {
             for square in row {
                 if square.is_empty() {
@@ -217,10 +294,47 @@ impl Grid {
 
             write!(stdout, "{}{}", cursor::Down(1), cursor::Left(Grid::WIDTH as u16 * 2)).unwrap();
         }
+
+        // Draw next piece box outline
+        Pos(Grid::WIDTH + 1, 0).goto(stdout).unwrap();
+
+        for y in 0..=6 {
+            for x in 0..=6 {
+                match y {
+                    0 | 6 => write!(stdout, "--"),
+                    _ => match x {
+                        0 | 6 => write!(stdout, "| "),
+                        _ => write!(stdout, "  ")
+                    }
+                }.unwrap()
+            }
+
+            write!(stdout, "{}{}", cursor::Down(1), cursor::Left(14)).unwrap();
+        }
+
+        // Place label in the center
+        Pos(Grid::WIDTH + 3, 0).goto(stdout).unwrap();
+
+        write!(stdout, "Next:").unwrap();
+
+        next_piece.render(stdout);
     }
 }
 
 impl Piece {
+    fn new() -> Self {
+        Piece { 
+            shape: Shapes::rand(),
+            pos: Pos(Grid::WIDTH + 4, 1),
+            color: thread_rng().gen(),
+            rotation: 0
+        }
+    }
+
+    fn move_top(&mut self) {
+        self.pos = Pos(Grid::WIDTH / 2, -4);
+    }
+
     fn try_move(&mut self, grid: &Grid, x: i16, y: i16) -> Option<()> {
         self.pos.0 += x;
         self.pos.1 += y;
@@ -250,6 +364,16 @@ impl Piece {
 
     fn clockwise(&self) -> u8 {
         (self.rotation + 1) % 4
+    }
+
+    fn anti_clockwise(&self) -> u8 {
+        let new = self.rotation as i8 - 1;
+        
+        if new < 0 { 3 } else { new as u8 }
+    }
+
+    fn flipped(&self) -> u8 {
+        (self.rotation + 2) % 4
     }
 
     fn shape_rotation(&self) -> &ShapeRotation {
@@ -283,7 +407,10 @@ fn main() {
 
     let mut grid = Grid( Default::default() );
 
-    let mut piece = Piece { shape: &Shapes::I, pos: Pos(1, 1), color: Color::White, rotation: 0 };
+    let mut piece = Piece::new();
+    piece.move_top();
+
+    let mut next_piece = Piece::new();
 
     let (tx, rx) = mpsc::channel();
     let (stop_tx, stop_rx) = mpsc::channel();
@@ -311,7 +438,7 @@ fn main() {
 
         let start_time = Instant::now();
 
-        grid.render(&mut stdout);
+        grid.render(&mut stdout, &next_piece);
 
         piece.render(&mut stdout);
 
@@ -321,18 +448,37 @@ fn main() {
 
         if let Ok(c) = rx.recv_timeout(Duration::from_millis(100)) {
             match c {
-                Key::Char('q') => {
+                Key::Char('p') => {
                     stop_tx.send(()).unwrap();
                     break;
                 },
-                Key::Left => piece.try_move(&grid, -1, 0).unwrap_or(()),
-                Key::Right => piece.try_move(&grid, 1, 0).unwrap_or(()),
-                Key::Up => {
+                Key::Char('q') => piece.try_move(&grid, -1, 0).unwrap_or(()),
+                Key::Char('d') => piece.try_move(&grid, 1, 0).unwrap_or(()),
+                Key::Char('z') => piece.try_move(&grid, 0, 1).unwrap_or(()),
+                Key::Char('s') => {
+                    while piece.try_move(&grid, 0, 1).is_some() {}
+
+                    grid.emplace(&piece);
+                    piece = next_piece;
+                    piece.move_top();
+
+                    next_piece = Piece::new();
+                },
+                Key::Left => {
+                    if piece.try_rotate(&grid, piece.anti_clockwise()).is_some() {
+                        rotated_this_frame = true;
+                    }
+                },
+                Key::Right => {
                     if piece.try_rotate(&grid, piece.clockwise()).is_some() {
                         rotated_this_frame = true;
                     }
                 },
-                Key::Down => piece.try_move(&grid, 0, 1).unwrap_or(()),
+                Key::Up => {
+                    if piece.try_rotate(&grid, piece.flipped()).is_some() {
+                        rotated_this_frame = true;
+                    }
+                }
                 _ => ()
             }            
         }
@@ -340,7 +486,10 @@ fn main() {
         while delta_time.as_millis() > 500 {
             if piece.try_move(&grid, 0, 1).is_none() && !rotated_this_frame {
                 grid.emplace(&piece);
-                piece = Piece { shape: &Shapes::T, pos: Pos(1, 1), color: thread_rng().gen(), rotation: 0 };
+                piece = next_piece;
+                piece.move_top();
+
+                next_piece = Piece::new();
             }
 
             delta_time -= Duration::from_millis(500);
