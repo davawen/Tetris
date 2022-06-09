@@ -288,7 +288,7 @@ impl Grid {
                     write!(stdout, "` ").unwrap();
                 }
                 else {
-                    write!(stdout, "{}o{} ", square, Fg(termion::color::Reset)).unwrap();
+                    write!(stdout, "{}▣{} ", square, Fg(termion::color::Reset)).unwrap();
                 }
             }
 
@@ -389,7 +389,7 @@ impl Piece {
                     write!(stdout, "{}", cursor::Right(2)).unwrap();
                 }
                 else {
-                    write!(stdout, "{}o{} ", self.color, Fg(termion::color::Reset)).unwrap();
+                    write!(stdout, "{}▣{} ", self.color, Fg(termion::color::Reset)).unwrap();
                 }
             }
 
