@@ -1,7 +1,7 @@
-use std::{io::{stdout, Write, stdin, Stdout}, thread, time::{Duration, Instant}, sync::{mpsc::{self, TryRecvError}}, default};
+use std::{io::{stdout, Write, stdin, Stdout}, thread, time::{Duration, Instant}, sync::mpsc::{self, TryRecvError}};
 use derive_more::{Deref, DerefMut};
 
-use rand::{thread_rng, prelude::Distribution, distributions::Standard, Rng};
+use rand::{thread_rng, Rng};
 use termion::{
     cursor,
     raw::{IntoRawMode, RawTerminal},
@@ -9,79 +9,11 @@ use termion::{
     event::Key, color::Fg
 };
 
-#[derive(Debug, Clone, Copy)]
-enum Color {
-    Empty,
-    White,
-    Red,
-    Cyan,
-    Yellow,
-    Green
-}
+mod shape;
+mod color;
 
-impl Default for Color {
-    fn default() -> Self {
-        Color::Empty
-    }
-}
-
-impl Color {
-    fn is_empty(&self) -> bool {
-        matches!(self, Color::Empty)
-    }
-}
-
-impl std::fmt::Display for Color {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use termion::color as c;
-        use Color::*;
-
-        match self {
-            Empty => write!(f, "{}", c::Fg(c::Black)),
-            White => write!(f, "{}", c::Fg(c::LightWhite)),
-            Red => write!(f, "{}", c::Fg(c::Red)),
-            Cyan => write!(f, "{}", c::Fg(c::Cyan)),
-            Yellow => write!(f, "{}", c::Fg(c::Yellow)),
-            Green => write!(f, "{}", c::Fg(c::LightGreen)),
-        }
-    }
-}
-
-impl Distribution<Color> for Standard {
-    /// Doesn't return 'Empty'
-    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Color {
-        use Color::*;
-
-        match rng.gen_range(1..=5) {
-            1 => White,
-            2 => Red,
-            3 => Cyan,
-            4 => Yellow,
-            5 => Green,
-            _ => panic!()
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct Pos(i16, i16);
-
-// Offset every pos by 4
-impl Pos {
-    fn term_pos(&self) -> Pos {
-        Pos( self.0 * 2 + 1 + 4, self.1 + 1 + 4 )
-    }
-
-    fn goto(&self, stdout: &mut RawTerminal<Stdout>) -> std::io::Result<()> {
-        let pos = self.term_pos();
-        write!(stdout, "{}", cursor::Goto(pos.0.try_into().unwrap(), pos.1.try_into().unwrap()))
-    }
-}
-
-#[derive(Default, Debug, Deref, DerefMut)]
-struct ShapeRotation([[u16; 4]; 4]);
-
-type Shape = [ShapeRotation; 4];
+use shape::*;
+use color::Color;
 
 #[derive(Default, Debug, Deref, DerefMut)]
 struct Grid([[Color; 8]; 16]);
@@ -92,129 +24,6 @@ struct Piece {
     shape: &'static Shape,
     pos: Pos,
     rotation: u8
-}
-
-#[non_exhaustive]
-struct Shapes;
-
-impl Shapes {
-    pub const I: Shape = [
-        ShapeRotation([
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 0, 0 ],
-            [ 1, 1, 1, 1 ],
-            [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 1, 0 ],
-            [ 0, 0, 1, 0 ],
-            [ 0, 0, 1, 0 ],
-            [ 0, 0, 1, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ],
-            [ 1, 1, 1, 1 ],
-            [ 0, 0, 0, 0 ]
-        ])
-    ];
-
-    pub const T: Shape = [
-        ShapeRotation([
-            [ 0, 1, 0, 0 ],
-            [ 1, 1, 1, 0 ],
-            [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 1, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 0, 0 ],
-            [ 1, 1, 1, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 1, 0, 0 ],
-            [ 1, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ])
-    ];
-
-    pub const L: Shape = [
-        ShapeRotation([
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 1, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 0, 0 ],
-            [ 1, 1, 1, 0 ],
-            [ 1, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 1, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 1, 0 ],
-            [ 1, 1, 1, 0 ],
-            [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ])
-    ];
-
-    pub const J: Shape = [
-        ShapeRotation([
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 1, 1, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 1, 0, 0, 0 ],
-            [ 1, 1, 1, 0 ],
-            [ 0, 0, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 1, 1, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 1, 0, 0 ],
-            [ 0, 0, 0, 0 ]
-        ]),
-        ShapeRotation([
-            [ 0, 0, 0, 0 ],
-            [ 1, 1, 1, 0 ],
-            [ 0, 0, 1, 0 ],
-            [ 0, 0, 0, 0 ]
-        ])
-    ];
-
-    fn rand() -> &'static Shape {
-        match thread_rng().gen_range(1..=4) {
-            1 => &Shapes::I,
-            2 => &Shapes::T,
-            3 => &Shapes::L,
-            4 => &Shapes::J,
-            _ => unreachable!()
-        }
-    }
 }
 
 impl Grid {
