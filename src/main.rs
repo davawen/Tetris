@@ -18,12 +18,121 @@ use color::Color;
 #[derive(Default, Debug, Deref, DerefMut)]
 struct Grid([[Color; 8]; 16]);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Piece {
     color: Color,
-    shape: &'static Shape,
+    shape: Shape,
     pos: Pos,
-    rotation: u8
+    rotation: usize
+}
+
+fn draw_box(stdout: &mut RawTerminal<Stdout>, pos: Pos, size: Size) {
+    pos.goto(stdout).unwrap();
+
+    // ┌─┐
+    // │ │
+    // └─┘
+
+    let size = size.term_value();
+
+    if size.0 < 2 || size.1 < 2 { panic!("Cannot draw 1x1 box") }
+
+    write!(stdout, "┌{}┐", "─".repeat((size.0 - 2) as usize)).unwrap();
+
+    for _ in 1..size.1-1 {
+        write!(stdout, "{}{}", cursor::Left(size.0 as u16), cursor::Down(1)).unwrap();
+        write!(stdout, "│{}│", " ".repeat((size.0 - 2) as usize)).unwrap();
+    }
+
+    write!(stdout, "{}{}", cursor::Left(size.0 as u16), cursor::Down(1)).unwrap();
+    write!(stdout, "└{}┘", "─".repeat((size.0 - 2) as usize)).unwrap();
+}
+
+impl Piece {
+    fn new() -> Self {
+        Piece { 
+            shape: Shapes::rand(),
+            pos: Pos(Grid::WIDTH + 2, 1),
+            color: thread_rng().gen(),
+            rotation: 0
+        }
+    }
+
+    fn hold_piece_pos() -> Pos {
+        Pos(Grid::WIDTH + 2, 7)
+    }
+
+    fn move_top(&mut self) {
+        self.pos = Pos(Grid::WIDTH / 2, -4);
+    }
+
+    fn try_move(&mut self, grid: &Grid, x: i16, y: i16) -> Option<()> {
+        self.pos.0 += x;
+        self.pos.1 += y;
+
+        if grid.check_collision(self) {
+            self.pos.0 -= x;
+            self.pos.1 -= y;
+
+            None
+        }
+        else {
+            Some(())
+        }
+    }
+
+    fn drop(&mut self, grid: &Grid) {
+        while self.try_move(grid, 0, 1).is_some() {}
+    }
+
+    fn try_rotate(&mut self, grid: &Grid, rotation: usize) -> Option<()> {
+        let old = self.rotation;
+        self.rotation = rotation;
+
+        if grid.check_collision(self) {
+            self.rotation = old;
+
+            None
+        }
+        else { Some(()) }
+    }
+
+    fn clockwise(&self) -> usize {
+        (self.rotation + 1) % self.shape.len()
+    }
+
+    fn anti_clockwise(&self) -> usize {
+        let new = self.rotation as isize - 1;
+        
+        if new < 0 { self.shape.len() - 1 } else { new as usize }
+    }
+
+    fn flipped(&self) -> usize {
+        (self.rotation + 2) % self.shape.len()
+    }
+
+    fn shape_rotation(&self) -> &ShapeRotation {
+        if self.rotation >= self.shape.len() { panic!("aaa") }
+
+        &self.shape[self.rotation]
+    }
+
+    fn render(&self, stdout: &mut RawTerminal<Stdout>) {
+        self.pos.goto(stdout).unwrap();
+
+        for row in self.shape_rotation().0 {
+            for square in row {
+                if square == 0 {
+                    write!(stdout, "{}", cursor::Right(2)).unwrap();
+                }
+                else {
+                    write!(stdout, "{}▣{} ", self.color, Fg(termion::color::Reset)).unwrap();
+                }
+            }
+
+            write!(stdout, "{}{}", cursor::Down(1), cursor::Left(4 * 2)).unwrap();
+        }
+    }
 }
 
 impl Grid {
@@ -31,11 +140,12 @@ impl Grid {
     const HEIGHT: i16 = 16;
 
     fn check_collision(&self, block: &Piece) -> bool {
-        
-        for y in 0..block.shape.len() {
-            for x in 0..block.shape[y].len() {
+        let shape = block.shape_rotation();
+
+        for y in 0..shape.len() {
+            for x in 0..shape[y].len() {
                 // Only check for actual blocks in the block
-                if block.shape_rotation()[y][x] != 0 {
+                if shape[y][x] != 0 {
 
                     let (g_x, g_y) = (x as i16 + block.pos.0, y as i16 + block.pos.1);
                     
@@ -58,10 +168,11 @@ impl Grid {
     }
 
     fn emplace(&mut self, block: &Piece) {
+        let shape = block.shape_rotation();
 
-        for y in 0..block.shape.len() {
-            for x in 0..block.shape[y].len() {
-                let square = block.shape_rotation()[y][x];
+        for y in 0..shape.len() {
+            for x in 0..shape[y].len() {
+                let square = shape[y][x];
                 if square != 0 {
 
                     let (g_x, g_y) = (x as i16 + block.pos.0, y as i16 + block.pos.1);
@@ -92,7 +203,7 @@ impl Grid {
         }
     }
 
-    fn render(&self, stdout: &mut RawTerminal<Stdout>, next_piece: &Piece) {
+    fn render(&self, stdout: &mut RawTerminal<Stdout>, next_piece: &Piece, hold_piece: &Option<Piece>) {
         let grid = &self.0;
 
         // Clear up area above grid
@@ -118,108 +229,26 @@ impl Grid {
             write!(stdout, "{}{}", cursor::Down(1), cursor::Left(Grid::WIDTH as u16 * 2)).unwrap();
         }
 
-        // Draw next piece box outline
-        Pos(Grid::WIDTH + 1, 0).goto(stdout).unwrap();
+        // "Next Piece" box
+        draw_box(stdout, Pos(Grid::WIDTH + 1, 0), Size(6, 6));
 
-        for y in 0..=6 {
-            for x in 0..=6 {
-                match y {
-                    0 | 6 => write!(stdout, "--"),
-                    _ => match x {
-                        0 | 6 => write!(stdout, "| "),
-                        _ => write!(stdout, "  ")
-                    }
-                }.unwrap()
-            }
-
-            write!(stdout, "{}{}", cursor::Down(1), cursor::Left(14)).unwrap();
-        }
-
-        // Place label in the center
-        Pos(Grid::WIDTH + 3, 0).goto(stdout).unwrap();
-
+        Pos(Grid::WIDTH + 2, 0).goto(stdout).unwrap();
         write!(stdout, "Next:").unwrap();
 
         next_piece.render(stdout);
-    }
-}
 
-impl Piece {
-    fn new() -> Self {
-        Piece { 
-            shape: Shapes::rand(),
-            pos: Pos(Grid::WIDTH + 4, 1),
-            color: thread_rng().gen(),
-            rotation: 0
-        }
-    }
+        // "Holded Piece" box
+        draw_box(stdout, Pos(Grid::WIDTH + 1, 6), Size(6, 6));
 
-    fn move_top(&mut self) {
-        self.pos = Pos(Grid::WIDTH / 2, -4);
-    }
+        Pos(Grid::WIDTH + 2, 6).goto(stdout).unwrap();
+        write!(stdout, "On Hold:").unwrap();
 
-    fn try_move(&mut self, grid: &Grid, x: i16, y: i16) -> Option<()> {
-        self.pos.0 += x;
-        self.pos.1 += y;
-
-        if grid.check_collision(self) {
-            self.pos.0 -= x;
-            self.pos.1 -= y;
-
-            None
-        }
-        else {
-            Some(())
-        }
-    }
-
-    fn try_rotate(&mut self, grid: &Grid, rotation: u8) -> Option<()> {
-        let old = self.rotation;
-        self.rotation = rotation;
-
-        if grid.check_collision(self) {
-            self.rotation = old;
-
-            None
-        }
-        else { Some(()) }
-    }
-
-    fn clockwise(&self) -> u8 {
-        (self.rotation + 1) % 4
-    }
-
-    fn anti_clockwise(&self) -> u8 {
-        let new = self.rotation as i8 - 1;
-        
-        if new < 0 { 3 } else { new as u8 }
-    }
-
-    fn flipped(&self) -> u8 {
-        (self.rotation + 2) % 4
-    }
-
-    fn shape_rotation(&self) -> &ShapeRotation {
-        &self.shape[self.rotation as usize]
-    }
-
-    fn render(&self, stdout: &mut RawTerminal<Stdout>) {
-        self.pos.goto(stdout).unwrap();
-
-        for row in self.shape_rotation().0 {
-            for square in row {
-                if square == 0 {
-                    write!(stdout, "{}", cursor::Right(2)).unwrap();
-                }
-                else {
-                    write!(stdout, "{}▣{} ", self.color, Fg(termion::color::Reset)).unwrap();
-                }
-            }
-
-            write!(stdout, "{}{}", cursor::Down(1), cursor::Left(4 * 2)).unwrap();
+        if let Some(hold_piece) = hold_piece {
+            hold_piece.render(stdout);
         }
     }
 }
+
 
 fn main() {
     let mut stdout = stdout().into_raw_mode().unwrap();
@@ -234,6 +263,7 @@ fn main() {
     piece.move_top();
 
     let mut next_piece = Piece::new();
+    let mut hold_piece: Option<Piece> = None;
 
     let (tx, rx) = mpsc::channel();
     let (stop_tx, stop_rx) = mpsc::channel();
@@ -256,18 +286,22 @@ fn main() {
     });
 
     let mut delta_time = Duration::new(0, 0);
+    let mut last_move = Instant::now();
 
     loop {
 
         let start_time = Instant::now();
 
-        grid.render(&mut stdout, &next_piece);
+        grid.render(&mut stdout, &next_piece, &hold_piece);
 
+        // Render shadow of where the piece would be if it was dropped
+        let mut dropped_piece = Piece { color: Color::Gray, ..piece.clone() };
+        dropped_piece.drop(&grid);
+        
+        dropped_piece.render(&mut stdout);
         piece.render(&mut stdout);
 
         stdout.flush().unwrap();
-
-        let mut rotated_this_frame = false;
 
         if let Ok(c) = rx.recv_timeout(Duration::from_millis(100)) {
             match c {
@@ -275,11 +309,17 @@ fn main() {
                     stop_tx.send(()).unwrap();
                     break;
                 },
-                Key::Char('q') => piece.try_move(&grid, -1, 0).unwrap_or(()),
-                Key::Char('d') => piece.try_move(&grid, 1, 0).unwrap_or(()),
+                Key::Char('q') => {
+                    piece.try_move(&grid, -1, 0).unwrap_or(());
+                    last_move = Instant::now();
+                },
+                Key::Char('d') => {
+                    piece.try_move(&grid, 1, 0).unwrap_or(());
+                    last_move = Instant::now();
+                },
                 Key::Char('z') => piece.try_move(&grid, 0, 1).unwrap_or(()),
                 Key::Char('s') => {
-                    while piece.try_move(&grid, 0, 1).is_some() {}
+                    piece.drop(&grid);
 
                     grid.emplace(&piece);
                     grid.remove_full_lines();
@@ -287,28 +327,44 @@ fn main() {
                     piece = next_piece;
                     piece.move_top();
                     next_piece = Piece::new();
+
+                    last_move = Instant::now();
                 },
                 Key::Left => {
                     if piece.try_rotate(&grid, piece.anti_clockwise()).is_some() {
-                        rotated_this_frame = true;
+                        last_move = Instant::now();
                     }
                 },
                 Key::Right => {
                     if piece.try_rotate(&grid, piece.clockwise()).is_some() {
-                        rotated_this_frame = true;
+                        last_move = Instant::now();
                     }
                 },
                 Key::Up => {
                     if piece.try_rotate(&grid, piece.flipped()).is_some() {
-                        rotated_this_frame = true;
+                        last_move = Instant::now();
                     }
+                },
+                // Any uppercase character means hold
+                Key::Char(' ') => {
+                    piece.pos = Piece::hold_piece_pos();
+
+                    if let Some(holded) = &mut hold_piece {
+                        std::mem::swap(holded, &mut piece);
+                    } else {
+                        hold_piece = Some(piece);
+                        piece = next_piece;
+                        next_piece = Piece::new();
+                    }
+
+                    piece.move_top();
                 }
                 _ => ()
             }            
         }
 
         while delta_time.as_millis() > 500 {
-            if piece.try_move(&grid, 0, 1).is_none() && !rotated_this_frame {
+            if piece.try_move(&grid, 0, 1).is_none() && last_move.elapsed().as_millis() > 500 {
                 grid.emplace(&piece);
                 grid.remove_full_lines();
 

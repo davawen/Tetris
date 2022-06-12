@@ -7,7 +7,8 @@ pub enum Color {
     Red,
     Cyan,
     Yellow,
-    Green
+    Green,
+    Gray
 }
 
 impl Default for Color {
@@ -34,6 +35,7 @@ impl std::fmt::Display for Color {
             Cyan => write!(f, "{}", c::Fg(c::Cyan)),
             Yellow => write!(f, "{}", c::Fg(c::Yellow)),
             Green => write!(f, "{}", c::Fg(c::LightGreen)),
+            Gray => write!(f, "{}", c::Fg(c::LightBlack)),
         }
     }
 }
