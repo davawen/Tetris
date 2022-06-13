@@ -1,5 +1,5 @@
 use std::io::{Stdout, Write};
-use derive_more::{Deref, DerefMut};
+use derive_more::{Deref, DerefMut, Add, AddAssign, Neg};
 
 use rand::{thread_rng, Rng};
 use termion::{
@@ -7,10 +7,10 @@ use termion::{
     raw::RawTerminal
 };
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Add, AddAssign, Neg)]
 pub struct Pos(pub i16, pub i16);
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Add, AddAssign)]
 pub struct Size(pub i16, pub i16);
 
 // Offset every pos by 4

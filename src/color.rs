@@ -3,12 +3,13 @@ use rand::{prelude::*, distributions::Standard};
 #[derive(Debug, Clone, Copy)]
 pub enum Color {
     Empty,
+    Gray,
     White,
     Red,
     Cyan,
     Yellow,
     Green,
-    Gray
+    Purple,
 }
 
 impl Default for Color {
@@ -30,28 +31,30 @@ impl std::fmt::Display for Color {
 
         match self {
             Empty => write!(f, "{}", c::Fg(c::Black)),
+            Gray => write!(f, "{}", c::Fg(c::LightBlack)),
             White => write!(f, "{}", c::Fg(c::LightWhite)),
             Red => write!(f, "{}", c::Fg(c::Red)),
             Cyan => write!(f, "{}", c::Fg(c::Cyan)),
             Yellow => write!(f, "{}", c::Fg(c::Yellow)),
             Green => write!(f, "{}", c::Fg(c::LightGreen)),
-            Gray => write!(f, "{}", c::Fg(c::LightBlack)),
+            Purple => write!(f, "{}", c::Fg(c::Magenta))
         }
     }
 }
 
 impl Distribution<Color> for Standard {
-    /// Doesn't return 'Empty'
+    /// Doesn't return 'Empty' or 'Gray' (reserved colors)
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Color {
         use Color::*;
 
-        match rng.gen_range(1..=5) {
+        match rng.gen_range(1..=6) {
             1 => White,
             2 => Red,
             3 => Cyan,
             4 => Yellow,
             5 => Green,
-            _ => panic!()
+            6 => Purple,
+            _ => unreachable!()
         }
     }
 }

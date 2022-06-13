@@ -66,35 +66,61 @@ impl Piece {
         self.pos = Pos(Grid::WIDTH / 2, -4);
     }
 
-    fn try_move(&mut self, grid: &Grid, x: i16, y: i16) -> Option<()> {
-        self.pos.0 += x;
-        self.pos.1 += y;
+    fn move_by(&mut self, value: Pos) {
+        self.pos += value;
+    }
+
+    /// Returns true if the move was legal, and false if it wasn't
+    fn try_move(&mut self, grid: &Grid, value: Pos) -> bool {
+        self.move_by(value);
 
         if grid.check_collision(self) {
-            self.pos.0 -= x;
-            self.pos.1 -= y;
+            self.move_by(-value);
 
-            None
+            false
         }
         else {
-            Some(())
+            true
         }
     }
 
     fn drop(&mut self, grid: &Grid) {
-        while self.try_move(grid, 0, 1).is_some() {}
+        while self.try_move(grid, Pos(0, 1)) {}
     }
 
-    fn try_rotate(&mut self, grid: &Grid, rotation: usize) -> Option<()> {
+    /// Returns true if the rotation was legal and false if it wasn't
+    fn try_rotate(&mut self, grid: &Grid, rotation: usize) -> bool {
         let old = self.rotation;
         self.rotation = rotation;
 
         if grid.check_collision(self) {
             self.rotation = old;
 
-            None
+            false
         }
-        else { Some(()) }
+        else {
+            true
+        }
+    }
+
+    /// Try to rotate piece, and jerks it left and right in case the original rotation isn't possible, to allow for wall bounces
+    /// Returns true if a rotation happened and false if none was correct
+    fn try_rotate_with_bounce(&mut self, grid: &Grid, rotation: usize) -> bool {
+        if self.try_rotate(grid, rotation) { return true }
+
+        let mut try_move_rotation = |v| {
+            self.move_by(v);
+            if self.try_rotate(grid, rotation) { true }
+            else {
+                self.move_by(-v);
+                false
+            }
+        };
+
+        if try_move_rotation(Pos(1, 0)) { return true; }
+        if try_move_rotation(Pos(-1, 0)) { return true; }
+
+        false
     }
 
     fn clockwise(&self) -> usize {
@@ -310,14 +336,18 @@ fn main() {
                     break;
                 },
                 Key::Char('q') => {
-                    piece.try_move(&grid, -1, 0).unwrap_or(());
+                    piece.try_move(&grid, Pos(-1, 0));
                     last_move = Instant::now();
                 },
                 Key::Char('d') => {
-                    piece.try_move(&grid, 1, 0).unwrap_or(());
+                    piece.try_move(&grid, Pos(1, 0));
                     last_move = Instant::now();
                 },
-                Key::Char('z') => piece.try_move(&grid, 0, 1).unwrap_or(()),
+                Key::Char('z') => { 
+                    if piece.try_move(&grid, Pos(0, 1)) {
+                        last_move = Instant::now(); // Allow for movement after fast drop
+                    }
+                },
                 Key::Char('s') => {
                     piece.drop(&grid);
 
@@ -331,17 +361,17 @@ fn main() {
                     last_move = Instant::now();
                 },
                 Key::Left => {
-                    if piece.try_rotate(&grid, piece.anti_clockwise()).is_some() {
+                    if piece.try_rotate_with_bounce(&grid, piece.anti_clockwise()) {
                         last_move = Instant::now();
                     }
                 },
                 Key::Right => {
-                    if piece.try_rotate(&grid, piece.clockwise()).is_some() {
+                    if piece.try_rotate_with_bounce(&grid, piece.clockwise()) {
                         last_move = Instant::now();
                     }
                 },
                 Key::Up => {
-                    if piece.try_rotate(&grid, piece.flipped()).is_some() {
+                    if piece.try_rotate_with_bounce(&grid, piece.flipped()) {
                         last_move = Instant::now();
                     }
                 },
@@ -360,11 +390,11 @@ fn main() {
                     piece.move_top();
                 }
                 _ => ()
-            }            
+            };
         }
 
         while delta_time.as_millis() > 500 {
-            if piece.try_move(&grid, 0, 1).is_none() && last_move.elapsed().as_millis() > 500 {
+            if !piece.try_move(&grid, Pos(0, 1)) && last_move.elapsed().as_millis() > 500 {
                 grid.emplace(&piece);
                 grid.remove_full_lines();
 
@@ -376,6 +406,9 @@ fn main() {
             delta_time -= Duration::from_millis(500);
         }
 
-        delta_time += Instant::now() - start_time;
+        delta_time += start_time.elapsed();
     }
+
+    Pos(0, Grid::HEIGHT).goto(&mut stdout).unwrap();
+    write!(stdout, "{}", cursor::Show).unwrap();
 }
